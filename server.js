@@ -15,6 +15,10 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 
+app.get('/', (req, res) => {
+  res.send('Server is running');
+});
+
 let tacoRainActive = false;
 let tacoRainEndTime = 0;
 
