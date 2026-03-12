@@ -6,20 +6,25 @@ app.use(cors());
 app.use(express.json());
 
 let tacoActive = false;
+let tacoEndTime = 0;
 
 app.get('/', (req, res) => {
+  if(tacoActive && Date.now() > tacoEndTime) {
+    tacoActive = false;
+  }
   res.json({ active: tacoActive });
 });
 
 app.post('/start', (req, res) => {
   tacoActive = true;
-  console.log('Taco rain started');
+  tacoEndTime = Date.now() + 60000;
+  console.log('Taco started');
   res.json({ success: true });
 });
 
 app.post('/stop', (req, res) => {
   tacoActive = false;
-  console.log('Taco rain stopped');
+  console.log('Taco stopped');
   res.json({ success: true });
 });
 
