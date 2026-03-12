@@ -1,66 +1,39 @@
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
 const cors = require('cors');
 
 const app = express();
-const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
-
 app.use(cors());
 app.use(express.json());
+
+let tacoRainActive = false;
+let tacoRainEndTime = 0;
 
 app.get('/', (req, res) => {
   res.send('Server is running');
 });
 
-let tacoRainActive = false;
-let tacoRainEndTime = 0;
-
-io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-  
-  socket.emit('tacoStatus', {
-    active: tacoRainActive,
+app.get('/status', (req, res) => {
+  res.json({
+    active: tacoRainActive && Date.now() < tacoRainEndTime,
     endTime: tacoRainEndTime
-  });
-  
-  socket.on('startTaco', (data) => {
-    tacoRainActive = true;
-    tacoRainEndTime = Date.now() + 60000;
-    console.log('Taco rain started!');
-    
-    io.emit('tacoStart', {
-      endTime: tacoRainEndTime
-    });
-  });
-  
-  socket.on('stopTaco', () => {
-    tacoRainActive = false;
-    console.log('Taco rain stopped!');
-    
-    io.emit('tacoStop');
-  });
-  
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
   });
 });
 
-setInterval(() => {
-  if(tacoRainActive && Date.now() > tacoRainEndTime) {
+app.post('/status', (req, res) => {
+  const { active } = req.body;
+  if(active) {
+    tacoRainActive = true;
+    tacoRainEndTime = Date.now() + 60000;
+    console.log('Taco rain started!');
+  } else {
     tacoRainActive = false;
-    io.emit('tacoStop');
-    console.log('Taco rain auto-stopped');
+    console.log('Taco rain stopped!');
   }
-}, 1000);
+  res.json({ success: true });
+});
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
