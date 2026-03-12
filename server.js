@@ -1,39 +1,29 @@
 const express = require('express');
-const http = require('http');
 const cors = require('cors');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-let tacoRainActive = false;
-let tacoRainEndTime = 0;
+let tacoActive = false;
 
 app.get('/', (req, res) => {
-  res.send('Server is running');
+  res.json({ active: tacoActive });
 });
 
-app.get('/status', (req, res) => {
-  res.json({
-    active: tacoRainActive && Date.now() < tacoRainEndTime,
-    endTime: tacoRainEndTime
-  });
+app.post('/start', (req, res) => {
+  tacoActive = true;
+  console.log('Taco rain started');
+  res.json({ success: true });
 });
 
-app.post('/status', (req, res) => {
-  const { active } = req.body;
-  if(active) {
-    tacoRainActive = true;
-    tacoRainEndTime = Date.now() + 60000;
-    console.log('Taco rain started!');
-  } else {
-    tacoRainActive = false;
-    console.log('Taco rain stopped!');
-  }
+app.post('/stop', (req, res) => {
+  tacoActive = false;
+  console.log('Taco rain stopped');
   res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server on port ${PORT}`);
 });
