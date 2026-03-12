@@ -7,11 +7,9 @@ app.use(express.json());
 
 let tacoActive = false;
 let tacoEndTime = 0;
+let announcement = null;
 
 app.get('/', (req, res) => {
-  if(tacoActive && Date.now() > tacoEndTime) {
-    tacoActive = false;
-  }
   res.json({ active: tacoActive });
 });
 
@@ -25,6 +23,17 @@ app.post('/start', (req, res) => {
 app.post('/stop', (req, res) => {
   tacoActive = false;
   console.log('Taco stopped');
+  res.json({ success: true });
+});
+
+app.get('/announcement', (req, res) => {
+  res.json({ announcement: announcement });
+});
+
+app.post('/announcement', (req, res) => {
+  const { text, role, sender } = req.body;
+  announcement = { text, role, sender, time: Date.now() };
+  console.log('Announcement set:', text);
   res.json({ success: true });
 });
 
