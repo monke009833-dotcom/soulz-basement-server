@@ -1,43 +1,161 @@
-const express = require('express');
-const cors = require('cors');
+const http = require('http');
+const url  = require('url');
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+const PORT            = process.env.PORT || 3000;
+const ANNOUNCE_SECRET = process.env.ANNOUNCE_SECRET || 'soulz-secret-change-me';
 
-let tacoActive = false;
-let tacoEndTime = 0;
-let announcement = null;
+// Keep all connected SSE clients
+let clients = [];
 
-app.get('/', (req, res) => {
-  res.json({ active: tacoActive });
+// Last announcement (so late-joiners see it immediately on connect if < 30s old)
+let lastAnnouncement = null;
+
+function setCORSHeaders(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+}
+
+const server = http.createServer((req, res) => {
+  const parsed = url.parse(req.url, true);
+  const path   = parsed.pathname;
+
+  // ── CORS preflight ──
+  if (req.method === 'OPTIONS') {
+    setCORSHeaders(res);
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // ── SSE stream — every visitor connects here ──
+  if (req.method === 'GET' && path === '/events') {
+    setCORSHeaders(res);
+    res.writeHead(200, {
+      'Content-Type':      'text/event-stream',
+      'Cache-Control':     'no-cache',
+      'Connection':        'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+
+    res.write(': connected\n\n');
+
+    // Send last announcement immediately if it's fresh (< 30s)
+    if (lastAnnouncement && Date.now() - lastAnnouncement.ts < 30000) {
+      res.write(`data: ${JSON.stringify(lastAnnouncement)}\n\n`);
+    }
+
+    const client = { res };
+    clients.push(client);
+
+    // Keep-alive heartbeat every 25s
+    const heartbeat = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch (e) {}
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      clients = clients.filter(c => c !== client);
+    });
+    return;
+  }
+
+  // ── POST /announce — owner/admin sends an announcement ──
+  if (req.method === 'POST' && path === '/announce') {
+    setCORSHeaders(res);
+
+    const authHeader = req.headers['authorization'] || '';
+    const token      = authHeader.replace('Bearer ', '').trim();
+    if (token !== ANNOUNCE_SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try { payload = JSON.parse(body); } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      const { text, role, sender } = payload;
+      if (!text || !role || !sender) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing text, role, or sender' }));
+        return;
+      }
+
+      const announcement = { text, role, sender, ts: Date.now() };
+      lastAnnouncement   = announcement;
+
+      const msg = `data: ${JSON.stringify(announcement)}\n\n`;
+      clients.forEach(c => { try { c.res.write(msg); } catch (e) {} });
+
+      console.log(`[ANNOUNCE] (${clients.length} clients) [${role}] ${sender}: ${text}`);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, delivered: clients.length }));
+    });
+    return;
+  }
+
+  // ── POST /taco — broadcast taco rain start/stop ──
+  if (req.method === 'POST' && path === '/taco') {
+    setCORSHeaders(res);
+
+    const authHeader = req.headers['authorization'] || '';
+    const token      = authHeader.replace('Bearer ', '').trim();
+    if (token !== ANNOUNCE_SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try { payload = JSON.parse(body); } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      const { action } = payload; // 'start' or 'stop'
+      if (!action) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing action' }));
+        return;
+      }
+
+      const msg = `data: ${JSON.stringify({ taco: action })}\n\n`;
+      clients.forEach(c => { try { c.res.write(msg); } catch (e) {} });
+
+      console.log(`[TACO] ${action.toUpperCase()} → ${clients.length} clients`);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, delivered: clients.length }));
+    });
+    return;
+  }
+
+  // ── GET /status — simple health check ──
+  if (req.method === 'GET' && path === '/status') {
+    setCORSHeaders(res);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, clients: clients.length, uptime: process.uptime() }));
+    return;
+  }
+
+  res.writeHead(404);
+  res.end('Not found');
 });
 
-app.post('/start', (req, res) => {
-  tacoActive = true;
-  tacoEndTime = Date.now() + 60000;
-  console.log('Taco started');
-  res.json({ success: true });
+server.listen(PORT, () => {
+  console.log(`✅ Soulz Announce Server running on port ${PORT}`);
 });
-
-app.post('/stop', (req, res) => {
-  tacoActive = false;
-  console.log('Taco stopped');
-  res.json({ success: true });
-});
-
-app.get('/announcement', (req, res) => {
-  res.json({ announcement: announcement });
-});
-
-app.post('/announcement', (req, res) => {
-  const { text, role, sender } = req.body;
-  announcement = { text, role, sender, time: Date.now() };
-  console.log('Announcement set:', text);
-  res.json({ success: true });
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server on port ${PORT}`);
 });
